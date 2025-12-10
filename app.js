@@ -3,10 +3,27 @@ const errorHandler = require("./middleware/error-handler");
 const notFound = require("./middleware/not-found");
 
 const app = express();
+app.use(express.json({ limit: "1kb" }));
+
+global.user_id = null;
+global.users = [];
+global.tasks = [];
 
 app.use((req, res, next) => {
   console.log("LOG:", req.method, req.path, req.query);
   next();
+});
+
+app.post("/api/users/register", (req, res)=>{
+    console.log("This data was posted", JSON.stringify(req.body));
+    res.send("parsed the data");
+});
+
+app.post("/api/users/register", (req, res)=>{
+    const newUser = {...req.body}; 
+    global.users.push(newUser);
+    delete req.body.password;
+    res.status(201).json(req.body);
 });
 
 app.get("/", (req, res) => {
