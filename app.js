@@ -2,7 +2,8 @@ const express = require("express");
 const errorHandler = require("./middleware/error-handler");
 const notFound = require("./middleware/not-found");
 const authMiddleware = require("./middleware/auth");
-const taskRouter = require("./routers/taskRoutes");
+const taskRoutes = require("./routers/taskRoutes");
+const userRoutes = require("./routers/userRoutes");
 
 const app = express();
 app.use(express.json({ limit: "1kb" }));
@@ -11,33 +12,28 @@ global.user_id = null;
 global.users = [];
 global.tasks = [];
 
-app.use("/api/tasks", authMiddleware, taskRouter);
-
-app.use((req, res, next) => {
-  console.log("LOG:", req.method, req.path, req.query);
-  next();
-});
-
-app.post("/api/users/register", (req, res)=>{
-    console.log("This data was posted", JSON.stringify(req.body));
-    res.send("parsed the data");
-});
-
-app.post("/api/users/register", (req, res)=>{
-    const newUser = {...req.body}; 
-    global.users.push(newUser);
-    delete req.body.password;
-    res.status(201).json(req.body);
-});
+app.use("/api/tasks", authMiddleware, taskRoutes);
+app.use("/api/users", userRoutes);
 
 app.get("/", (req, res) => {
   res.send("Hello, World!");
 });
 
-app.post("/testpost", (req, res) => {
-  res.json({ message: "POST received" });
+app.get("/health", async (req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.json({ status: "ok", db: "connected" });
+  } catch (err) {
+    res.status(500).json({ message: `db not connected, error: ${ err.message }` });
+  }
 });
 
+app.use(errorHandler);
+
+app.use((req, res, next) => {
+  console.log("LOG:", req.method, req.path, req.query);
+  next();
+});
 
 
 app.use(notFound);
@@ -59,12 +55,14 @@ server.on("error", (err) => {
 });
 
 let isShuttingDown = false;
+const pool = require("./db/pg-pool");
 
 async function shutdown(code = 0) {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
   console.log("Shutting down gracefully...");
+  await pool.end();
   try {
     await new Promise((resolve) => server.close(resolve));
     console.log("HTTP server closed.");
