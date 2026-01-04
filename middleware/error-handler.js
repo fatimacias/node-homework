@@ -2,6 +2,10 @@ const { StatusCodes } = require("http-status-codes");
 
 const errorHandlerMiddleware = (err, req, res, next) => {
 
+    if (err.name === "PrismaClientInitializationError") {
+        console.error("Couldn't connect to the database. Is It running?")
+    }
+
     if (err.code === "ECONNREFUSED" && err.port === 5432) {
         console.log(
             "Database connection was refused. Is PostgreSQL running?"

@@ -4,7 +4,7 @@ const util = require("util");
 const scrypt = util.promisify(crypto.scrypt);
 const { userSchema } = require("../validation/userSchema");
 
-const pool = require("../db/pg-pool");
+const prisma = require("../db/prisma");
 
 async function hashPassword(password) {
     const salt = crypto.randomBytes(16).toString("hex");
@@ -36,27 +36,23 @@ async function register(req, res,next) {
     }
 
     const hashedPassword = await hashPassword(value.password);
-  
+    let user = null ; 
     try
     {
-        console.log(value);
-        const result = await pool.query(
-        `INSERT INTO users (email, name, hashed_password)
-        VALUES ($1, $2, $3) RETURNING id, email, name`,
-        [value.email, value.name, hashedPassword]
-        );
-
-        const newUser = result.rows[0];
-
-        global.user_id = newUser.id;
+        user = await prisma.user.create({
+            data: {name : value.name, email: value.email, hashedPassword},
+            select: { name:true, email: true, id:true}
+        });
+       
+        global.user_id = user.id;
         return res.status(StatusCodes.CREATED).json({
-            name : newUser.name,
-            email : newUser.email,
+            name : user.name,
+            email : user.email,
         });
     }
     catch(err)
     {
-        if(err.code =="23505"){
+        if(err.name === "PrismaClientKnownRequestError" && err.code == "P2002"){
             return res.status(StatusCodes.BAD_REQUEST).json({message:"User already exists"});
         }
         return next(err);
@@ -66,24 +62,21 @@ async function register(req, res,next) {
 
 async function logon(req, res,next) {
     if (!req.body) req.body = {};
-    const { email, password } = req.body;
-
-    let result;
+    const  password = req.body.password;
+    let email = req.body.email.toLowerCase();
+    let user;
     try {
-        result = await pool.query("SELECT * FROM users WHERE email = $1",[email]);
+        user = await prisma.user.findUnique({where : {email}});
     } catch (err) {
         return next(err); 
     }
-    
-    if (result.rows.length == 0) {
+    if (!user) {
         return res.status(StatusCodes.UNAUTHORIZED).json({
             message: "Authentication Failed"
         });
-    }
-
-    const user = result.rows[0];
-
-    const isValid = await comparePassword(password, user.hashed_password);
+    }   
+    const isValid = await comparePassword(password, user.hashedPassword);
+    
     if (!isValid) {
         return res
             .status(StatusCodes.UNAUTHORIZED)
