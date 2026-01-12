@@ -4,6 +4,8 @@ const notFound = require("./middleware/not-found");
 const authMiddleware = require("./middleware/auth");
 const taskRoutes = require("./routers/taskRoutes");
 const userRoutes = require("./routers/userRoutes");
+const analyticsRoutes = require("./routers/analyticsRoutes");
+
 const prisma = require("./db/prisma");
 
 const app = express();
@@ -15,6 +17,7 @@ global.tasks = [];
 
 app.use("/api/tasks", authMiddleware, taskRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/analytics", authMiddleware, analyticsRoutes);
 
 app.get("/", (req, res) => {
   res.send("Hello, World!");
