@@ -7,6 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Priority {
+  low
+  medium
+  high
+}
+
 model User {
   id              Int      @id @default(autoincrement())
   email           String   @unique @db.VarChar(255)
@@ -21,6 +27,7 @@ model Task {
   id           Int      @id @default(autoincrement())
   title        String   @db.VarChar(255)
   isCompleted Boolean  @default(false) @map("is_completed")
+  priority    Priority   @default(medium)
   userId      Int  @map("user_id")
   createdAt   DateTime @default(now()) @db.Timestamp(6) @map("created_at")
   User        User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)

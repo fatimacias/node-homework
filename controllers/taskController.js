@@ -1,7 +1,25 @@
-const { taskSchema, patchTaskSchema } = require("../validation/taskSchema");
+const { taskSchema, patchTaskSchema, taskFilterSchema } = require("../validation/taskSchema");
 const { StatusCodes } = require("http-status-codes");
 
 const prisma = require("../db/prisma");
+
+const DEFAULT_TASK_SELECT = {
+  id: true,
+  title: true,
+  isCompleted: true,
+  priority: true,
+  createdAt: true
+};
+
+const DEFAULT_USER_SELECT = {
+  name: true,
+  email: true
+};
+
+const TASK_WITH_USER_SELECT = {
+  ...DEFAULT_TASK_SELECT,
+  User: { select: DEFAULT_USER_SELECT }
+};
 
 exports.create = async (req, res) => {
   if (!req.body) req.body = {};
@@ -15,9 +33,10 @@ exports.create = async (req, res) => {
       .status(StatusCodes.BAD_REQUEST)
       .json({ message: error.message });
   }
+
   const task = await prisma.task.create({
-    data: {title : value.title, isCompleted: value.isCompleted, userId:global.user_id},
-    select : {id:true,title:true,isCompleted:true, createdAt: true}
+    data: {title : value.title, isCompleted: value.isCompleted, userId:global.user_id, priority:value.priority},
+    select : DEFAULT_TASK_SELECT
   });
 
   return res.status(StatusCodes.CREATED).json(task);
@@ -26,14 +45,65 @@ exports.create = async (req, res) => {
 
 exports.index = async (req, res) => {
 
-  const tasks = await prisma.task.findMany(
-    {where:{userId:global.user_id},
-    select: {title:true, isCompleted:true, id: true}
+   const { error, value } = taskFilterSchema.validate(req.query, {
+    abortEarly: false,
   });
-  if (!tasks || tasks.length==0) {
-    return res.status(StatusCodes.NOT_FOUND).json({ message: "No tasks found" });
+  if (error) {
+    return res
+      .status(StatusCodes.BAD_REQUEST)
+      .json({ message: error.message });
   }
-  return res.json(tasks);
+  const page = value.page;
+  const limit = value.limit;
+  const skip = (page - 1) * limit;
+
+  const whereClause = {
+    userId: global.user_id 
+  }
+  if(value.find){
+    whereClause.title = {
+      contains : value.find,
+      mode: 'insensitive'
+    }
+  }
+  if (value.isCompleted !== undefined) {
+    whereClause.isCompleted = value.isCompleted;
+  }
+  if(value.priority){
+    whereClause.priority = {
+      equals : value.priority
+    }
+  }
+
+if (value.min_date || value.max_date) {
+  whereClause.createdAt = {
+    ...(value.min_date && { gte: new Date(value.min_date) }),
+    ...(value.max_date && { lte: new Date(value.max_date) }),
+  };
+}
+
+
+  const tasks = await prisma.task.findMany(
+    {where: whereClause,
+    select: TASK_WITH_USER_SELECT,
+    skip : skip,
+    take : limit,
+    orderBy : { createdAt : 'desc'}
+  });
+
+  const totalTask = await prisma.task.count({
+    where: whereClause});
+
+  const pagination = {
+    page:page,
+    limit : limit,
+    total : totalTask,
+    pages : Math.ceil(totalTask/limit),
+    hasNext : page * limit < totalTask,
+    hasPrev : page > 1
+  };
+
+  return res.json({tasks,pagination}) ;
 };
 
 
@@ -44,9 +114,9 @@ exports.show = async (req, res,next) => {
   }
 
   try {
-   const task = await prisma.task.findUnique({
+    const task = await prisma.task.findUnique({
     where:{id: taskId, userId: global.user_id},
-    select : {id:true,title:true,isCompleted:true, createdAt: true}
+    select: TASK_WITH_USER_SELECT,
   });
 
     if (!task) {
@@ -92,13 +162,12 @@ exports.update = async  (req, res,next) => {
       data: value,
       where: { id ,
           userId: global.user_id},
-      select: { title: true, isCompleted: true, id: true }
+      select: TASK_WITH_USER_SELECT
   });
-  console.log(task);
     if (!task) {
       return res
         .status(StatusCodes.NOT_FOUND)
-        .json({ message: "That task was not found" });
+        .json({ message: "That task was not found." });
     }
 
     return res.json(task);
@@ -122,13 +191,13 @@ exports.deleteTask = async (req, res,next) => {
   try {
     const task = await prisma.task.delete({
       where: {id, userId: global.user_id},
-      select: { title: true, isCompleted: true, id: true }
+      select: DEFAULT_TASK_SELECT
     })
 
     if (!task) {
       return res
         .status(StatusCodes.NOT_FOUND)
-        .json({ message: "That task was not found" });
+        .json({ message: "That task was not found." });
     }
 
     return res.json(task);
@@ -139,6 +208,48 @@ exports.deleteTask = async (req, res,next) => {
     } else {
       return next(err); 
     }
+  }
+};
+
+exports.bulkCreate = async (req, res, next) => {
+  const {tasks}   = req.body;
+
+  if (!tasks || !Array.isArray(tasks) || tasks.length === 0) {
+    return res.status(StatusCodes.BAD_REQUEST).json({ 
+      error: "Invalid request data. Expected an array of tasks." 
+    });
+  }
+
+  const validTasks = [];
+  for (const task of tasks) {
+    const { error, value } = taskSchema.validate(task);
+    if (error) {
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        error: "Validation failed",
+        details: error.details,
+      });
+    }
+    validTasks.push({
+      title: value.title,
+      isCompleted: value.isCompleted || false,
+      priority: value.priority,
+      userId: global.user_id
+    });
+  }
+
+  try {
+    const result = await prisma.task.createMany({
+      data: validTasks,
+      skipDuplicates: false
+    });
+
+    res.status(StatusCodes.CREATED).json({
+      message: "success!",
+      tasksCreated: result.count,
+      totalRequested: validTasks.length
+    });
+  } catch (err) {
+    return next(err);
   }
 };
 

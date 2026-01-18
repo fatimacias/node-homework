@@ -1,10 +1,12 @@
 const express = require("express");
 const router = express.Router();
 
-const { register, logon, logoff } = require("../controllers/userController");
+const { register, logon, logoff, show } = require("../controllers/userController");
 
 router.post("/register", register);
 router.post("/logon", logon);
 router.post("/logoff", logoff);
+router.get("/:id", show);
+
 
 module.exports = router;
