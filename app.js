@@ -1,23 +1,33 @@
 const express = require("express");
 const errorHandler = require("./middleware/error-handler");
 const notFound = require("./middleware/not-found");
-const authMiddleware = require("./middleware/auth");
 const taskRoutes = require("./routers/taskRoutes");
 const userRoutes = require("./routers/userRoutes");
 const analyticsRoutes = require("./routers/analyticsRoutes");
-
 const prisma = require("./db/prisma");
-
 const app = express();
+const cookieParser = require("cookie-parser");
+const rateLimiter = require("express-rate-limit");
+
+const helmet = require("helmet");
+const { xss } = require("express-xss-sanitizer");
+const jwtMiddleware = require("./middleware/jwtMiddleware");
+
+app.set("trust proxy", 1);
+app.use(
+  rateLimiter({
+    windowMs: 15 * 60 * 1000, 
+    max: 100, 
+  }),
+);
+app.use(helmet());
 app.use(express.json({ limit: "1kb" }));
+app.use(cookieParser());
+app.use(xss());
 
-global.user_id = null;
-global.users = [];
-global.tasks = [];
-
-app.use("/api/tasks", authMiddleware, taskRoutes);
+app.use("/api/tasks", jwtMiddleware ,taskRoutes);
 app.use("/api/users", userRoutes);
-app.use("/api/analytics", authMiddleware, analyticsRoutes);
+app.use("/api/analytics",jwtMiddleware,analyticsRoutes);
 
 app.get("/", (req, res) => {
   res.send("Hello, World!");
@@ -32,17 +42,13 @@ app.get("/health", async (req, res) => {
   }
 });
 
-app.use(errorHandler);
-
 app.use((req, res, next) => {
   console.log("LOG:", req.method, req.path, req.query);
   next();
 });
 
-
-app.use(notFound);
-
 app.use(errorHandler);
+app.use(notFound);
 
 const port = process.env.PORT || 3000;
 const server = app.listen(port, () =>
