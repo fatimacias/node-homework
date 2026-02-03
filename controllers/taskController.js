@@ -93,7 +93,9 @@ if (value.min_date || value.max_date) {
 
   const totalTask = await prisma.task.count({
     where: whereClause});
-
+  
+    if (totalTask === 0) 
+      return res.status(StatusCodes.NOT_FOUND).json({ message: "No tasks found" });
   const pagination = {
     page:page,
     limit : limit,
