@@ -30,7 +30,9 @@ describe("register a user", () => {
       password: "Pa$$word20",
     };
 
-    saveRes = await agent.post("/api/users/register").send(newUser);
+    saveRes = await agent.post("/api/users/register")
+    .set("X-Recaptcha-Test", process.env.RECAPTCHA_BYPASS)
+    .send(newUser);
 
     expect(saveRes.status).toBe(201);
   });
@@ -45,7 +47,7 @@ it("49. user can logon", async () => {
     .post("/api/users/logon")
     .send({ email: "jdeere@example.com", password: "Pa$$word20" });
 
-  csrfToken = saveRes.body.csrfToken; // 👈 GUARDA AQUÍ
+  csrfToken = saveRes.body.csrfToken;
   expect(saveRes.status).toBe(200);
 });
 
