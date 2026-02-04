@@ -28,6 +28,7 @@ describe("register a user", () => {
       name: "John Deere",
       email: "jdeere@example.com",
       password: "Pa$$word20",
+      "recaptchaToken": "test-token"
     };
 
     saveRes = await agent.post("/api/users/register")

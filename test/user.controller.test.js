@@ -51,9 +51,10 @@ describe("testing logon, register, and logoff", () => {
         name: "Bob",
         email: "bob@sample.com",
         password: "Pa$$word20",
+        "recaptchaToken": "test-token"
       },
     });
-
+    req.headers["X-Recaptcha-Test"] = process.env.JWT_SECRET;
     saveRes = MockResponseWithCookies({ eventEmitter: EventEmitter });
 
     await waitForRouteHandlerCompletion(register, req, saveRes);

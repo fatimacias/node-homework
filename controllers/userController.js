@@ -57,7 +57,6 @@ async function validateRecaptcha(req, res) {
             })
         });
         const recaptchaData = await recaptchaResponse.json();
-        console.log("Recaptcha data:", recaptchaData);
         isPerson = recaptchaData.success;
         delete req.body.recaptchaToken;
     }

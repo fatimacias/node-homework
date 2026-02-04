@@ -29,10 +29,6 @@ app.use("/api/tasks", jwtMiddleware ,taskRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/analytics",jwtMiddleware,analyticsRoutes);
 
-app.get("/", (req, res) => {
-  res.send("Hello, World!");
-});
-
 app.get("/health", async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
