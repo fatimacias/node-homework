@@ -36,11 +36,40 @@ async function comparePassword(inputPassword, storedHash) {
     derivedKey
     );
 }
+async function validateRecaptcha(req, res) {
+    let isPerson = false;
+    if(process.env.RECAPTCHA_BYPASS && req.get("X-Recaptcha-Test") === process.env.RECAPTCHA_BYPASS)
+    {
+        isPerson = true;
+    }
+    else if(req.body.recaptchaToken)
+    {
+        const token = req.body.recaptchaToken;
+        const recaptchaResponse = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: new URLSearchParams({
+                secret: process.env.RECAPTCHA_SECRET,
+                response: token,
+                remoteip: req.ip
+            })
+        });
+        const recaptchaData = await recaptchaResponse.json();
+        isPerson = recaptchaData.success;
+        delete req.body.recaptchaToken;
+    }
 
+    if(!isPerson)
+    {
+        return  res.status(StatusCodes.BAD_REQUEST).json({error: "We can't tell if you're a person or a bot."});
+    }
+}
 async function register(req, res,next) {
 
     if (!req.body) req.body = {};
-
+    validateRecaptcha(req, res);
     const { error, value } = userSchema.validate(req.body, {
         abortEarly: false,
     });

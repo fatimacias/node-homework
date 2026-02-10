@@ -67,7 +67,7 @@ describe("user object validation tests", () => {
 
   it("7. valid user object returns no error", () => {
     const { error } = userSchema.validate(
-      { name: "Bobby", email: "bob@sample.com", password: "Pa$$word20" },
+      { name: "Bobby", email: "bob@sample.com", password: "Pa$$word20", recaptchaToken: "test-token" },
       { abortEarly: false }
     );
 

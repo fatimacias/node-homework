@@ -21,17 +21,13 @@ app.use(
   }),
 );
 app.use(helmet());
-app.use(express.json({ limit: "1kb" }));
+app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(xss());
 
 app.use("/api/tasks", jwtMiddleware ,taskRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/analytics",jwtMiddleware,analyticsRoutes);
-
-app.get("/", (req, res) => {
-  res.send("Hello, World!");
-});
 
 app.get("/health", async (req, res) => {
   try {

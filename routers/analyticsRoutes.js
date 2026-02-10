@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 
-const { getUserAnalytics, getUsersWithStats ,searchTasks} = require("../controllers/AnalyticsController");
+const { getUserAnalytics, getUsersWithStats ,searchTasks} = require("../controllers/analyticsController");
 
 
 router.get("/users/:id",getUserAnalytics);
