@@ -109,13 +109,16 @@ async function validateRecaptcha(req, res) {
 
     if(!isPerson)
     {
-        return  res.status(StatusCodes.BAD_REQUEST).json({error: "We can't tell if you're a person or a bot."});
+        res.status(StatusCodes.BAD_REQUEST).json({error: "We can't tell if you're a person or a bot."});
+        return false;
     }
+    return true;
 }
 async function register(req, res,next) {
 
     if (!req.body) req.body = {};
-    validateRecaptcha(req, res);
+    const isPerson = await validateRecaptcha(req, res);
+    if (!isPerson) return;
     const { error, value } = userSchema.validate(req.body, {
         abortEarly: false,
     });
