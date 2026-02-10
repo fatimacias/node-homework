@@ -13,6 +13,11 @@ const helmet = require("helmet");
 const { xss } = require("express-xss-sanitizer");
 const jwtMiddleware = require("./middleware/jwtMiddleware");
 
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpec = require("./swagger");
+
+
+
 app.set("trust proxy", 1);
 app.use(
   rateLimiter({
@@ -24,6 +29,16 @@ app.use(helmet());
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(xss());
+
+app.use(
+  "/api/docs",
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec, {
+    swaggerOptions: {
+      withCredentials: true,
+    },
+  })
+);
 
 app.use("/api/tasks", jwtMiddleware ,taskRoutes);
 app.use("/api/users", userRoutes);

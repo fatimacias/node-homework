@@ -15,4 +15,15 @@ const userSchema = Joi.object({
   recaptchaToken: Joi.string().required(),
 });
 
-module.exports = { userSchema };
+const googleLogonSchema = Joi.object({
+  authorizationCode: Joi.string().trim().required(),
+});
+
+const userUpdateSchema = Joi.object({
+  name: Joi.string().trim().min(3).max(30),
+  roles: Joi.string().trim().min(1).max(255),
+})
+  .min(1)
+  .message("No attributes to change were specified.");
+
+module.exports = { userSchema,googleLogonSchema, userUpdateSchema };

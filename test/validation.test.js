@@ -1,4 +1,4 @@
-const {userSchema} = require("../validation/userSchema");
+const {userSchema, googleLogonSchema} = require("../validation/userSchema");
 const {taskSchema, patchTaskSchema} = require("../validation/taskSchema");
 
 describe("user object validation tests", () => {
@@ -68,6 +68,26 @@ describe("user object validation tests", () => {
   it("7. valid user object returns no error", () => {
     const { error } = userSchema.validate(
       { name: "Bobby", email: "bob@sample.com", password: "Pa$$word20", recaptchaToken: "test-token" },
+      { abortEarly: false }
+    );
+
+    expect(error).toBeFalsy();
+  });
+
+  it("GoogleLogonSchema requires an authorizationCode", () => {
+    const { error } = googleLogonSchema.validate(
+      {},
+      { abortEarly: false }
+    );
+
+    expect(
+      error.details.find(detail => detail.context.key === "authorizationCode")
+    ).toBeDefined();
+  });
+
+  it("Valid google logon object returns no error", () => {
+    const { error } = googleLogonSchema.validate(
+      { authorizationCode: "test-code" },
       { abortEarly: false }
     );
 

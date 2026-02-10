@@ -16,7 +16,12 @@ module.exports = async (req, res, next) => {
     if (err) {
       return send401(res);
     }
-    req.user = { id: decoded.id }; 
+    const roles = Array.isArray(decoded.roles)
+      ? decoded.roles.map((r) => String(r).trim().toLowerCase()).filter(Boolean)
+      : (typeof decoded.roles === "string"
+        ? decoded.roles.split(",").map((r) => r.trim().toLowerCase()).filter(Boolean)
+        : undefined);
+    req.user = { id: decoded.id, roles }; 
     if ( ["POST", "PATCH", "PUT", "DELETE", "CONNECT"].includes(req.method)) {
       if (req.get("X-CSRF-TOKEN") != decoded.csrfToken) {
         return send401(res);
