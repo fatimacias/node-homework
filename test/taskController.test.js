@@ -24,22 +24,24 @@ let saveTaskId = null;
 
 
 beforeAll(async () => {
-  await prisma.Task.deleteMany();
-  await prisma.User.deleteMany();
+  await prisma.task.deleteMany();
+  await prisma.user.deleteMany();
 
-  user1 = await prisma.User.create({
+  user1 = await prisma.user.create({
     data: {
       name: "Bob",
       email: "bob@sample.com",
       hashedPassword: "nonsense",
+      roles: "user",
     },
   });
 
-  user2 = await prisma.User.create({
+  user2 = await prisma.user.create({
     data: {
       name: "Alice",
       email: "alice@sample.com",
       hashedPassword: "nonsense",
+      roles: "user",
     },
   });
 });

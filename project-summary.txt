@@ -1,1 +1,43 @@
+Deployed URL
 https://node-homework-a4kr.onrender.com
+
+What I added/changed (high level)
+- Google OAuth logon support on the backend.
+- New `users.auth_provider` column to track whether a user authenticated via `local` or `google`.
+- Added Role Based Access Control (RBAC) using a required `users.roles` comma-delimited string (ex: `user`, `manager`).
+- Added `PATCH /api/users/:id` so users can update their own name; only managers can update roles.
+- Added Swagger docs and expanded OpenAPI spec for Tasks, Users, and Analytics.
+
+Environment variables (backend)
+- `JWT_SECRET` (required)
+- `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` (required for Google logon)
+- `GOOGLE_REDIRECT_URI` (optional; defaults to `postmessage`)
+- `RECAPTCHA_BYPASS` (used by local register in dev/tests when sending `X-Recaptcha-Test`)
+
+Modified / New REST APIs
+
+Users
+- `POST /api/users/googleLogon`
+  - Body: `{ "authorizationCode": string }`
+  - Behavior: exchanges code with Google, upserts user, for a new user sets `auth_provider=google` and `roles=user`, creates 3 welcome tasks, sets `jwt` cookie, returns `{ name, email, csrfToken }`.
+- `PATCH /api/users/:id`
+  - Headers: `X-CSRF-TOKEN: <csrfToken>`
+  - Cookie: `jwt` (must be present)
+  - Body: `{ "name"?: string, "roles"?: string }`
+  - Rules:
+    - A user can update their own `name`.
+    - Only a manager can update `roles` (comma-delimited) or update another user.
+
+Analytics (now manager-only)
+- All endpoints below require an authenticated user whose `roles` includes `manager`.
+- `GET /api/analytics/users?page=<int>&limit=<int>`
+  - Returns paginated users with task stats.
+- `GET /api/analytics/users/:id`
+  - Returns task stats, recent tasks, and 7-day progress for a user.
+- `GET /api/analytics/tasks/search?q=<string>&page=<int>&limit=<int>`
+  - Searches tasks by task title or user name.
+
+Notes for reviewers
+- Roles are stored as a comma-delimited string in `users.roles` (ex: `user`, `user,manager`). You can set a user to manager via Prisma Studio.
+- CSRF: for state-changing requests (POST/PATCH/PUT/DELETE) that are protected by JWT middleware, send `X-CSRF-TOKEN` using the token returned by logon, register and googleLogon .
+- Swagger UI is available at `GET /api/docs`.

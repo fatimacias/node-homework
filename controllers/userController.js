@@ -2,10 +2,54 @@ const { StatusCodes } = require("http-status-codes");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const util = require("util");
+const { OAuth2Client } = require("google-auth-library");
 const scrypt = util.promisify(crypto.scrypt);
-const { userSchema } = require("../validation/userSchema");
+const { userSchema, googleLogonSchema, userUpdateSchema } = require("../validation/userSchema");
 
 const prisma = require("../db/prisma");
+
+const welcomeTaskTemplates = [
+    { title: "Complete your profile", priority: "medium" },
+    { title: "Add your first task", priority: "high" },
+    { title: "Explore the app", priority: "low" },
+];
+
+const parseRoles = (roles) => {
+    if (!roles) return [];
+    if (Array.isArray(roles)) return roles.map((r) => String(r).trim().toLowerCase()).filter(Boolean);
+    return String(roles)
+        .split(",")
+        .map((r) => r.trim().toLowerCase())
+        .filter(Boolean);
+};
+
+const normalizeRolesString = (roles) => {
+    const parsed = parseRoles(roles);
+    if (!parsed.length) return null;
+    return parsed.join(",");
+};
+
+const buildWelcomeTaskData = (userId) => {
+    return welcomeTaskTemplates.map((t) => ({ ...t, userId }));
+};
+
+const createWelcomeTasksForUser = async (tx, userId) => {
+    const welcomeTaskData = buildWelcomeTaskData(userId);
+    await tx.task.createMany({ data: welcomeTaskData });
+    return await tx.task.findMany({
+        where: {
+            userId,
+            title: { in: welcomeTaskData.map((t) => t.title) }
+        },
+        select: {
+            id: true,
+            title: true,
+            isCompleted: true,
+            userId: true,
+            priority: true
+        }
+    });
+};
 
 const cookieFlags = (req) => {
     return {
@@ -17,6 +61,8 @@ const cookieFlags = (req) => {
 
 const setJwtCookie = (req, res, user) => {
     const payload = { id: user.id, csrfToken:crypto.randomUUID() };
+    const roles = parseRoles(user?.roles);
+    if (roles.length) payload.roles = roles;
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "1h" }); 
     res.cookie("jwt", token, { ...cookieFlags(req), maxAge: 3600000 });
     return payload.csrfToken;
@@ -63,13 +109,16 @@ async function validateRecaptcha(req, res) {
 
     if(!isPerson)
     {
-        return  res.status(StatusCodes.BAD_REQUEST).json({error: "We can't tell if you're a person or a bot."});
+        res.status(StatusCodes.BAD_REQUEST).json({error: "We can't tell if you're a person or a bot."});
+        return false;
     }
+    return true;
 }
 async function register(req, res,next) {
 
     if (!req.body) req.body = {};
-    validateRecaptcha(req, res);
+    const isPerson = await validateRecaptcha(req, res);
+    if (!isPerson) return;
     const { error, value } = userSchema.validate(req.body, {
         abortEarly: false,
     });
@@ -88,29 +137,10 @@ async function register(req, res,next) {
     {
         const result = await prisma.$transaction(async (tx) => {
             const newUser = await tx.user.create({
-                data: { email, name, hashedPassword },
-                select: { id: true, email: true, name: true }
+                data: { email, name, hashedPassword, authProvider: "local", roles: "user" },
+                select: { id: true, email: true, name: true, roles: true }
             });
-            const welcomeTaskData = [
-                { title: "Complete your profile", userId: newUser.id, priority: "medium" },
-                { title: "Add your first task", userId: newUser.id, priority: "high" },
-                { title: "Explore the app", userId: newUser.id, priority: "low" }
-            ];
-            await tx.task.createMany({ data: welcomeTaskData });
-
-            const welcomeTasks = await tx.task.findMany({
-                where: {
-                    userId: newUser.id,
-                    title: { in: welcomeTaskData.map(t => t.title) }
-                },
-                select: {
-                    id: true,
-                    title: true,
-                    isCompleted: true,
-                    userId: true,
-                    priority: true
-                }
-            });
+            const welcomeTasks = await createWelcomeTasksForUser(tx, newUser.id);
             return { user: newUser, welcomeTasks };
         });
 
@@ -165,6 +195,92 @@ async function logon(req, res,next) {
     });
 }
 
+async function googleLogon(req, res, next) {
+    if (!req.body) req.body = {};
+    const { error, value } = googleLogonSchema.validate(req.body, { abortEarly: false });
+    if (error) {
+        return res
+            .status(StatusCodes.BAD_REQUEST)
+            .json({ message: "Validation failed", details: error.details });
+    }
+    const authorizationCode = value.authorizationCode;
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = (process.env.GOOGLE_REDIRECT_URI || "").trim() || "postmessage";
+
+    if (!clientId || !clientSecret) {
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+            message: "Google OAuth is not configured on the server"
+        });
+    }
+    try {
+        const oauth2Client = new OAuth2Client(clientId, clientSecret, redirectUri);
+        const { tokens } = await oauth2Client.getToken({
+            code: authorizationCode,
+            redirect_uri: redirectUri,
+        });
+        if (!tokens?.id_token) {
+            return res.status(StatusCodes.UNAUTHORIZED).json({ message: "Google authentication failed" });
+        }
+
+        const ticket = await oauth2Client.verifyIdToken({
+            idToken: tokens.id_token,
+            audience: clientId,
+        });
+
+        const payload = ticket.getPayload();
+        const email = payload?.email?.toLowerCase();
+        if (!email) {
+            return res.status(StatusCodes.UNAUTHORIZED).json({ message: "Google authentication failed" });
+        }
+
+        const nameFromGoogle = payload?.name || payload?.given_name || "Google User";
+        const name = String(nameFromGoogle).slice(0, 30);
+
+        let user = await prisma.user.findUnique({
+            where: { email },
+            select: { id: true, email: true, name: true, roles: true },
+        });
+
+        if (!user) {
+            const bogusPassword = crypto.randomBytes(32).toString("hex");
+            const hashedPassword = await hashPassword(bogusPassword);
+            try {
+                user = await prisma.$transaction(async (tx) => {
+                    const newUser = await tx.user.create({
+                        data: { email, name, hashedPassword, authProvider: "google", roles: "user" },
+                        select: { id: true, email: true, name: true, roles: true },
+                    });
+                    await createWelcomeTasksForUser(tx, newUser.id);
+                    return newUser;
+                });
+            } catch (createErr) {
+                if (createErr?.name === "PrismaClientKnownRequestError" && createErr.code == "P2002") {
+                    user = await prisma.user.findUnique({
+                        where: { email },
+                        select: { id: true, email: true, name: true, roles: true },
+                    });
+                } else {
+                    throw createErr;
+                }
+            }
+        }
+
+        const csrfToken = setJwtCookie(req, res, user);
+        return res.status(StatusCodes.OK).json({
+            name: user.name,
+            email: user.email,
+            csrfToken,
+        });
+    } catch (err) {
+        if (err?.response?.data?.error || err?.message?.toLowerCase?.().includes("invalid_grant")) {
+            return res.status(StatusCodes.UNAUTHORIZED).json({ message: "Google authentication failed" });
+        }
+        return next(err);
+    }
+}
+
 function logoff(req, res) {
     res.clearCookie("jwt", cookieFlags(req));
     return res.sendStatus(StatusCodes.OK);
@@ -182,6 +298,7 @@ async function show (req, res) {
             id: true,
             name: true,
             email: true,
+            roles: true,
             createdAt: true,
             Task: {
                 where: { isCompleted: false },
@@ -203,9 +320,66 @@ async function show (req, res) {
     res.status(StatusCodes.OK).json(user);
 };
 
+async function update(req, res, next) {
+    if (!req.body) req.body = {};
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) {
+        return res.status(StatusCodes.BAD_REQUEST).json({ error: "Invalid user ID" });
+    }
+    const { error, value } = userUpdateSchema.validate(req.body, { abortEarly: false });
+    if (error) {
+        return res
+            .status(StatusCodes.BAD_REQUEST)
+            .json({ message: "Validation failed", details: error.details });
+    }
+
+    const requesterId = req?.user?.id;
+    const requesterRoles = req?.user?.roles || [];
+    const isManager = Array.isArray(requesterRoles) && requesterRoles.includes("manager");
+    const isSelf = requesterId === userId;
+
+    if (!isSelf && !isManager) {
+        return res.status(StatusCodes.UNAUTHORIZED).json({ message: "Unauthorized" });
+    }
+
+    const data = {};
+    if (value.name !== undefined) data.name = value.name;
+
+    if (value.roles !== undefined) {
+        if (!isManager) {
+            return res.status(StatusCodes.UNAUTHORIZED).json({ message: "Unauthorized" });
+        }
+        const normalized = normalizeRolesString(value.roles);
+        if (!normalized) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: "Validation failed" });
+        }
+        data.roles = normalized;
+    }
+
+    try {
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data,
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                roles: true,
+                authProvider: true,
+                createdAt: true,
+            }
+        });
+        return res.status(StatusCodes.OK).json({ user: updatedUser });
+    } catch (err) {
+        return next(err);
+    }
+}
+
 module.exports = {
     register,
     logon,
+    googleLogon,
     logoff,
     show,
+    update,
 };

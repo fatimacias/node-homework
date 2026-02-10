@@ -2,6 +2,8 @@ require("dotenv").config();
 const request = require("supertest");
 
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+process.env.RECAPTCHA_BYPASS = process.env.RECAPTCHA_BYPASS || "test-recaptcha-bypass";
+process.env.PORT = process.env.PORT || "0";
 
 const prisma = require("../db/prisma");
 let agent;
@@ -11,16 +13,18 @@ let csrfToken;
 const { app, server } = require("../app");
 
 beforeAll(async () => {
-  await prisma.Task.deleteMany();
-  await prisma.User.deleteMany();
+  await prisma.task.deleteMany();
+  await prisma.user.deleteMany();
 
   agent = request.agent(app);
 });
 
 afterAll(async () => {
   await prisma.$disconnect();
-  server.close();
+  await new Promise((resolve) => server.close(resolve));
 });
+
+
 
 describe("register a user", () => {
   it("46. it creates the user entry", async () => {
@@ -28,7 +32,7 @@ describe("register a user", () => {
       name: "John Deere",
       email: "jdeere@example.com",
       password: "Pa$$word20",
-      "recaptchaToken": "test-token"
+      recaptchaToken: "test-token"
     };
 
     saveRes = await agent.post("/api/users/register")
